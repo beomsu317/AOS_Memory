@@ -14,7 +14,6 @@
 #define SMALL_SIZE 256
 
 int pid;
-char pname[SMALL_SIZE];
 
 void error(char *msg){
 	perror(msg);
@@ -51,7 +50,7 @@ void dump(unsigned long long start,unsigned long long end){
 	if(ptrace(PTRACE_DETACH, pid, 0, 0) < 0) error("[-] ptrace() PTRACE_DETACH error");
 	p = p - size;
 
-	sprintf(dump_name,"./%s_%llx_%llx",pname,start,end);
+	sprintf(dump_name,"./%d_%llx_%llx",pid,start,end);
 
 	if((fp = fopen(dump_name,"wb")) < 0) error("[-] fopen() error");
 	fwrite(p,1,size,fp);
@@ -78,20 +77,7 @@ int ps_exists_check(int pid){
 			continue;
 		}
 		dir_pid = atoi(entry->d_name);
-		if(dir_pid == pid){
-			sprintf(cmdline,"/proc/%d/status",pid);
-			
-			if((fp = fopen(cmdline,"rt")) < 0) error("fopen() error");
-			fgets(pname,0x100,fp);
-			fclose(fp);
-
-			// printf("%s\n",pname);
-			ptr = strtok(pname,"\t");
-			ptr = strtok(NULL,"\t");
-			strcpy(pname,ptr);
-			pname[strlen(pname)-1]='\0';
-			printf("[+] Process name: %s\n",pname);
-			
+		if(dir_pid == pid){		
 			return 1;
 		}
 	}
