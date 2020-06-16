@@ -9,23 +9,55 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
-#define MEDIUM_SIZE 1024
-#define SMALL_SIZE 256
+#define FILE_MAX_LEN 256
 
 int pid;
+char process_name[FILE_MAX_LEN];
 
 void error(char *msg){
 	perror(msg);
 	exit(-1);
 }
 
-void dump(unsigned long long start,unsigned long long end){
+void get_process_name(){
+    char name[FILE_MAX_LEN];
+    int fd;
+    sprintf(name,"/proc/%d/cmdline",pid);
+    fd = open(name,O_RDWR);
+    read(fd,process_name,FILE_MAX_LEN);
+    close(fd);
+}
+
+int process_exists_check(int pid){
+    DIR *dir;
+    char proc_dir[FILE_MAX_LEN];
+    sprintf(proc_dir,"/proc/%d",pid);
+    dir = opendir(proc_dir);
+    if(dir){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+void help(const char *name){
+    printf("Usage: %s [OPTIONS]\n"
+           "  -v                show version\n"
+           "  -p [pid]          target pid\n"
+           "  -s [start]        start memory\n"
+           "  -e [end]          end memory\n"
+           ,name);
+    exit(0);
+}
+
+void dump(unsigned long start,unsigned long end){
 	unsigned char data;
-	char dump_name[SMALL_SIZE];
+	char dump_name[FILE_MAX_LEN];
 	struct user_pt_regs regs;
 	struct iovec io;
-	long long size = 0;
+	long size = 0;
 	FILE *fp;
 	io.iov_base = &regs;
 	io.iov_len = sizeof(regs);
@@ -39,10 +71,10 @@ void dump(unsigned long long start,unsigned long long end){
 	size = end - start;
 	if(size <=0 ) error("[-] size error");
 	char *p = malloc(size);
-	printf("[+] size: 0x%llx\n",size);
+	printf("[+] size: 0x%lx\n",size);
 	if(ptrace(PTRACE_ATTACH,pid,0,0) < 0) error("[-] ptrace() PTRACE_ATTACH error");
-	for(long long i = 0; i < size; i++,p++){
-		if(i%0x1000 == 0) printf("  [+] dumping 0x%llx\n",i);
+	for(int i = 0; i < size; i++,p++){
+		if(i%0x10000 == 0) printf("  [+] dumping 0x%lx\n",i);
 		if ((data = ptrace(PTRACE_PEEKDATA,pid,start++,0)) < 0) error("[-] ptrace() PEEKDATA error");
 			*p = data;
 		
@@ -50,7 +82,7 @@ void dump(unsigned long long start,unsigned long long end){
 	if(ptrace(PTRACE_DETACH, pid, 0, 0) < 0) error("[-] ptrace() PTRACE_DETACH error");
 	p = p - size;
 
-	sprintf(dump_name,"./%d_%llx_%llx",pid,start,end);
+	sprintf(dump_name,"./%s_0x%lx_0x%lx",process_name,start,end);
 
 	if((fp = fopen(dump_name,"wb")) < 0) error("[-] fopen() error");
 	fwrite(p,1,size,fp);
@@ -59,53 +91,43 @@ void dump(unsigned long long start,unsigned long long end){
 
 }
 
-int ps_exists_check(int pid){
-	char cmdline[MEDIUM_SIZE];
-	struct dirent *entry;
-	struct stat file_stat;
-	int dir_pid;
-	DIR *dir;
-	FILE *fp;
-	char *ptr;
-	
-	dir = opendir("/proc");
-	
-	while((entry = readdir(dir))!=NULL){
-		
-		lstat(entry->d_name,&file_stat);
-		if(!S_ISDIR(file_stat.st_mode)) {
-			continue;
-		}
-		dir_pid = atoi(entry->d_name);
-		if(dir_pid == pid){		
-			return 1;
-		}
-	}
-	return -1;
-}
-
 int main(int argc,char* argv[],char* env[]) {
-	
-	FILE *fp;
-	struct dirent *entry;
-	char* ptr;
-	unsigned long long start,end;
-	
-	if(argc != 4){
-		printf("[+] Usage: %s [pid] [start] [end]\n",argv[0]);
-		exit(0);
-	}
+	int opt;
+	unsigned long start,end;
 
-	pid = atoi(argv[1]);
-	start = strtoull(argv[2],NULL,16);
-	end = strtoull(argv[3],NULL,16);
+    if(argc == 1){
+        help(argv[0]);
+    }
+
+    while((opt = getopt(argc, argv, "hvp:s:e:")) != -1) 
+    {
+        switch(opt) 
+        { 
+            case 'v':
+                printf("Version: 1.0.0\n");
+                break;
+            case 'p':
+                pid = atoi(optarg);
+                break;
+            case 's':
+                start = strtoul(optarg,NULL,16);
+                break;
+            case 'e':
+                end = strtoul(optarg,NULL,16);
+                break;
+            default:
+                help(argv[0]);
+                break;
+        }
+    } 
 	
-	if(ps_exists_check(pid) < 0){
+	if(process_exists_check(pid) <= 0){
 		error("[-] Unknown Process\n");
 	}
 
-	printf("[+] pid:  %d\n",pid);
-	printf("[+] start: %llx\n[+] end: %llx\n",start,end);
+    get_process_name();
+    printf("[+] Process name: %s\n",process_name);
+	printf("[+] Memory dump: 0x%lx - 0x%lx\n",start,end);
 	
 	dump(start,end);
 
@@ -113,4 +135,3 @@ int main(int argc,char* argv[],char* env[]) {
 
 	return 0;
 }
-
